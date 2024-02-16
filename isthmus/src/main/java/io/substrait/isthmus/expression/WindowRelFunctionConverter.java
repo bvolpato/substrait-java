@@ -6,6 +6,7 @@ import io.substrait.expression.ExpressionCreator;
 import io.substrait.expression.FunctionArg;
 import io.substrait.expression.WindowBound;
 import io.substrait.extension.SimpleExtension;
+import io.substrait.isthmus.AggregateFunctions;
 import io.substrait.relation.ConsistentPartitionWindow;
 import io.substrait.type.Type;
 import java.util.List;
@@ -17,6 +18,7 @@ import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.rex.RexWindowBound;
+import org.apache.calcite.sql.SqlAggFunction;
 
 public class WindowRelFunctionConverter
     extends FunctionConverter<
@@ -71,8 +73,11 @@ public class WindowRelFunctionConverter
       boolean isRows,
       Function<RexNode, Expression> topLevelConverter,
       RexExpressionConverter rexExpressionConverter) {
-    var aggFunction = winAggCall.getOperator();
-    FunctionFinder m = signatures.get(aggFunction);
+    var aggFunction = (SqlAggFunction) winAggCall.getOperator();
+
+    SqlAggFunction lookupFunction =
+        AggregateFunctions.getSubstraitAggVariant(aggFunction).orElse(aggFunction);
+    FunctionFinder m = signatures.get(lookupFunction);
     if (m == null) {
       return Optional.empty();
     }

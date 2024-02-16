@@ -6,6 +6,7 @@ import io.substrait.expression.ExpressionCreator;
 import io.substrait.expression.FunctionArg;
 import io.substrait.expression.WindowBound;
 import io.substrait.extension.SimpleExtension;
+import io.substrait.isthmus.AggregateFunctions;
 import io.substrait.type.Type;
 import java.util.Collections;
 import java.util.List;
@@ -17,6 +18,7 @@ import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.rex.RexOver;
 import org.apache.calcite.rex.RexWindow;
+import org.apache.calcite.sql.SqlAggFunction;
 
 public class WindowFunctionConverter
     extends FunctionConverter<
@@ -83,7 +85,11 @@ public class WindowFunctionConverter
       Function<RexNode, Expression> topLevelConverter,
       RexExpressionConverter rexExpressionConverter) {
     var aggFunction = over.getAggOperator();
-    FunctionFinder m = signatures.get(aggFunction);
+
+    SqlAggFunction lookupFunction =
+        AggregateFunctions.getSubstraitAggVariant(aggFunction).orElse(aggFunction);
+
+    FunctionFinder m = signatures.get(lookupFunction);
     if (m == null) {
       return Optional.empty();
     }
