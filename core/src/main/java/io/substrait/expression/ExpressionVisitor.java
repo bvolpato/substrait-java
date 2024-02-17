@@ -49,7 +49,11 @@ public interface ExpressionVisitor<R, E extends Throwable> {
 
   R visit(Expression.ListLiteral expr) throws E;
 
+  R visit(Expression.EmptyListLiteral expr) throws E;
+
   R visit(Expression.StructLiteral expr) throws E;
+
+  R visit(Expression.UserDefinedLiteral expr) throws E;
 
   R visit(Expression.Switch expr) throws E;
 

@@ -447,6 +447,25 @@ public interface Expression extends FunctionArg {
   }
 
   @Value.Immutable
+  abstract class EmptyListLiteral implements Literal {
+    public abstract Type elementType();
+
+    @Override
+    public Type.ListType getType() {
+      return Type.withNullability(nullable()).list(elementType());
+    }
+
+    public static ImmutableExpression.EmptyListLiteral.Builder builder() {
+      return ImmutableExpression.EmptyListLiteral.builder();
+    }
+
+    @Override
+    public <R, E extends Throwable> R accept(ExpressionVisitor<R, E> visitor) throws E {
+      return visitor.visit(this);
+    }
+  }
+
+  @Value.Immutable
   abstract static class StructLiteral implements Literal {
     public abstract List<Literal> fields();
 
@@ -460,6 +479,27 @@ public interface Expression extends FunctionArg {
 
     public static ImmutableExpression.StructLiteral.Builder builder() {
       return ImmutableExpression.StructLiteral.builder();
+    }
+
+    public <R, E extends Throwable> R accept(ExpressionVisitor<R, E> visitor) throws E {
+      return visitor.visit(this);
+    }
+  }
+
+  @Value.Immutable
+  abstract static class UserDefinedLiteral implements Literal {
+    public abstract ByteString value();
+
+    public abstract String uri();
+
+    public abstract String name();
+
+    public Type getType() {
+      return Type.withNullability(nullable()).userDefined(uri(), name());
+    }
+
+    public static ImmutableExpression.UserDefinedLiteral.Builder builder() {
+      return ImmutableExpression.UserDefinedLiteral.builder();
     }
 
     public <R, E extends Throwable> R accept(ExpressionVisitor<R, E> visitor) throws E {

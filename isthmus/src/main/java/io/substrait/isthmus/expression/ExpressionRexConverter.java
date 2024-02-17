@@ -20,6 +20,7 @@ import io.substrait.type.StringTypeVisitor;
 import io.substrait.type.Type;
 import io.substrait.util.DecimalUtil;
 import java.math.BigDecimal;
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -97,6 +98,13 @@ public class ExpressionRexConverter extends AbstractExpressionVisitor<RexNode, R
   @Override
   public RexNode visit(Expression.NullLiteral expr) throws RuntimeException {
     return rexBuilder.makeLiteral(null, typeConverter.toCalcite(typeFactory, expr.getType()));
+  }
+
+  @Override
+  public RexNode visit(Expression.UserDefinedLiteral expr) throws RuntimeException {
+    var binaryLiteral = rexBuilder.makeBinaryLiteral(new ByteString(expr.value().toByteArray()));
+    return rexBuilder.makeReinterpretCast(
+        typeConverter.toCalcite(typeFactory, expr.getType()), binaryLiteral, null);
   }
 
   @Override
@@ -253,6 +261,13 @@ public class ExpressionRexConverter extends AbstractExpressionVisitor<RexNode, R
     List<RexNode> args =
         expr.values().stream().map(l -> l.accept(this)).collect(Collectors.toList());
     return rexBuilder.makeCall(SqlStdOperatorTable.ARRAY_VALUE_CONSTRUCTOR, args);
+  }
+
+  @Override
+  public RexNode visit(Expression.EmptyListLiteral expr) throws RuntimeException {
+    var calciteType = typeConverter.toCalcite(typeFactory, expr.getType());
+    return rexBuilder.makeCall(
+        calciteType, SqlStdOperatorTable.ARRAY_VALUE_CONSTRUCTOR, Collections.emptyList());
   }
 
   @Override

@@ -1,10 +1,13 @@
 package io.substrait.expression.proto;
 
+import com.google.protobuf.Any;
+import com.google.protobuf.InvalidProtocolBufferException;
 import io.substrait.expression.ExpressionVisitor;
 import io.substrait.expression.FieldReference;
 import io.substrait.expression.FunctionArg;
 import io.substrait.expression.WindowBound;
 import io.substrait.extension.ExtensionCollector;
+import io.substrait.extension.SimpleExtension;
 import io.substrait.proto.Expression;
 import io.substrait.proto.FunctionArgument;
 import io.substrait.proto.Rel;
@@ -205,6 +208,23 @@ public class ExpressionProtoConverter implements ExpressionVisitor<Expression, R
   }
 
   @Override
+  public Expression visit(io.substrait.expression.Expression.EmptyListLiteral expr)
+      throws RuntimeException {
+    return lit(
+        builder -> {
+          var protoListType = expr.getType().accept(typeProtoConverter);
+          builder
+              .setEmptyList(protoListType.getList())
+              // For empty lists, the Literal message's own nullable field should be ignored
+              // in favor of the nullability of the Type.List in the literal's
+              // empty_list field. But for safety we set the literal's nullable field
+              // to match in case any readers either look in the wrong location
+              // or want to verify that they are consistent.
+              .setNullable(expr.nullable());
+        });
+  }
+
+  @Override
   public Expression visit(io.substrait.expression.Expression.StructLiteral expr) {
     return lit(
         bldr -> {
@@ -214,6 +234,25 @@ public class ExpressionProtoConverter implements ExpressionVisitor<Expression, R
                   .collect(java.util.stream.Collectors.toList());
           bldr.setNullable(expr.nullable())
               .setStruct(Expression.Literal.Struct.newBuilder().addAllFields(values));
+        });
+  }
+
+  @Override
+  public Expression visit(io.substrait.expression.Expression.UserDefinedLiteral expr) {
+    var typeReference =
+        extensionCollector.getTypeReference(SimpleExtension.TypeAnchor.of(expr.uri(), expr.name()));
+    return lit(
+        bldr -> {
+          try {
+            bldr.setNullable(expr.nullable())
+                .setUserDefined(
+                    Expression.Literal.UserDefined.newBuilder()
+                        .setTypeReference(typeReference)
+                        .setValue(Any.parseFrom(expr.value())))
+                .build();
+          } catch (InvalidProtocolBufferException e) {
+            throw new RuntimeException(e);
+          }
         });
   }
 
