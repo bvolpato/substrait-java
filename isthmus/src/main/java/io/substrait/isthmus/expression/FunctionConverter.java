@@ -1,5 +1,6 @@
 package io.substrait.isthmus.expression;
 
+import com.github.bsideup.jabel.Desugar;
 import com.google.common.collect.*;
 import io.substrait.expression.Expression;
 import io.substrait.expression.ExpressionCreator;
@@ -175,20 +176,24 @@ public abstract class FunctionConverter<
         for (F function : functions) {
           List<SimpleExtension.Argument> args = function.requiredArguments();
 
+          var bounds = ArgumentBounds.parse(function);
+
           // Skip if the number of arguments doesn't match or the return type doesn't match
-          if (args.size() != inputTypes.size()
+          if (!bounds.within(inputTypes.size())
               || !(function.returnType() instanceof ParameterizedType)
               || !isMatch(outputType, (ParameterizedType) function.returnType())) {
             continue;
           }
 
           // Check if every argument matches the function type.
-          if (IntStream.range(0, args.size())
+          if (IntStream.range(0, inputTypes.size())
               .allMatch(
                   i ->
                       isMatch(
                           inputTypes.get(i),
-                          ((SimpleExtension.ValueArgument) args.get(i)).value()))) {
+                          ((SimpleExtension.ValueArgument)
+                                  args.get(Integer.min(i, args.size() - 1)))
+                              .value()))) {
             return Optional.of(function);
           }
         }
@@ -489,5 +494,34 @@ public abstract class FunctionConverter<
       return true;
     }
     return inputType.accept(new IgnoreNullableAndParameters(type));
+  }
+
+  @Desugar
+  record ArgumentBounds(int lower, int upper) {
+
+    static ArgumentBounds parse(SimpleExtension.Function function) {
+      List<SimpleExtension.Argument> args = function.requiredArguments();
+
+      int lowerBoundRequiredArgs = args.size();
+      int upperBoundRequiredArgs = args.size();
+
+      if (function.variadic().isPresent()) {
+        SimpleExtension.VariadicBehavior variadicBehavior = function.variadic().get();
+        // Do not count variadic as a required argument, use the behavior.
+        lowerBoundRequiredArgs += 1 - variadicBehavior.getMin();
+
+        if (variadicBehavior.getMax().isEmpty()) {
+          upperBoundRequiredArgs = Integer.MAX_VALUE;
+        } else {
+          upperBoundRequiredArgs += variadicBehavior.getMax().getAsInt();
+        }
+      }
+
+      return new ArgumentBounds(lowerBoundRequiredArgs, upperBoundRequiredArgs);
+    }
+
+    boolean within(int count) {
+      return count >= lower && count <= upper;
+    }
   }
 }
