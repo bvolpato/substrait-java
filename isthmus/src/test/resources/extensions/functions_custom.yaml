@@ -26,14 +26,14 @@ scalar_functions:
           - name: arg1
             value: u!a_type?
         return: u!b_type
-  - name: "custom_scalar_listany"
+  - name: "custom_scalar_listany_to_listany"
     description: "custom function that takes list of any"
     impls:
       - args:
           - name: list
             value: LIST<any1>
         return: LIST<any1>
-  - name: "custom_scalar_listany_any"
+  - name: "custom_scalar_listany_any_to_listany"
     description: "custom function that takes list of any and an any scalar"
     impls:
       - args:
@@ -42,14 +42,14 @@ scalar_functions:
           - name: val
             value: any1
         return: LIST<any1>
-  - name: "custom_scalar_liststring"
+  - name: "custom_scalar_liststring_to_liststring"
     description: "custom function that takes list of string"
     impls:
       - args:
           - name: list
             value: LIST<string>
         return: LIST<string>
-  - name: "custom_scalar_liststring_any"
+  - name: "custom_scalar_liststring_any_to_liststring"
     description: "custom function that takes list of string and an any scalar"
     impls:
       - args:
@@ -57,6 +57,17 @@ scalar_functions:
             value: LIST<string>
           - name: val
             value: any1
+        return: LIST<string>
+  - name: "custom_scalar_liststring_anyvariadic_to_liststring"
+    description: "custom function that takes list of string and an any scalar"
+    impls:
+      - args:
+          - name: list
+            value: LIST<string>
+          - name: val
+            value: any1
+        variadic:
+          min: 1
         return: LIST<string>
 
 aggregate_functions:

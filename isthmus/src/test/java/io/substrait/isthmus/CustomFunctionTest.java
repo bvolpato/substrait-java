@@ -109,6 +109,7 @@ public class CustomFunctionTest extends PlanTestBase {
           FunctionMappings.s(customScalarListAnyAndAnyFn),
           FunctionMappings.s(customScalarListStringFn),
           FunctionMappings.s(customScalarListStringAndAnyFn),
+          FunctionMappings.s(customScalarListStringAndAnyVariadicFn),
           FunctionMappings.s(toBType));
 
   static final SqlFunction customScalarFn =
@@ -131,7 +132,7 @@ public class CustomFunctionTest extends PlanTestBase {
 
   static final SqlFunction customScalarListAnyFn =
       new SqlFunction(
-          "custom_scalar_listany",
+          "custom_scalar_listany_to_listany",
           SqlKind.OTHER_FUNCTION,
           ReturnTypes.explicit(varcharArrayType),
           null,
@@ -140,7 +141,7 @@ public class CustomFunctionTest extends PlanTestBase {
 
   static final SqlFunction customScalarListAnyAndAnyFn =
       new SqlFunction(
-          "custom_scalar_listany_any",
+          "custom_scalar_listany_any_to_listany",
           SqlKind.OTHER_FUNCTION,
           ReturnTypes.explicit(varcharArrayType),
           null,
@@ -149,7 +150,7 @@ public class CustomFunctionTest extends PlanTestBase {
 
   static final SqlFunction customScalarListStringFn =
       new SqlFunction(
-          "custom_scalar_liststring",
+          "custom_scalar_liststring_to_liststring",
           SqlKind.OTHER_FUNCTION,
           ReturnTypes.explicit(varcharArrayType),
           null,
@@ -158,7 +159,15 @@ public class CustomFunctionTest extends PlanTestBase {
 
   static final SqlFunction customScalarListStringAndAnyFn =
       new SqlFunction(
-          "custom_scalar_liststring_any",
+          "custom_scalar_liststring_any_to_liststring",
+          SqlKind.OTHER_FUNCTION,
+          ReturnTypes.explicit(varcharArrayType),
+          null,
+          null,
+          SqlFunctionCategory.USER_DEFINED_FUNCTION);
+  static final SqlFunction customScalarListStringAndAnyVariadicFn =
+      new SqlFunction(
+          "custom_scalar_liststring_anyvariadic_to_liststring",
           SqlKind.OTHER_FUNCTION,
           ReturnTypes.explicit(varcharArrayType),
           null,
@@ -287,7 +296,7 @@ public class CustomFunctionTest extends PlanTestBase {
                 List.of(
                     b.scalarFn(
                         NAMESPACE,
-                        "custom_scalar_listany:list",
+                        "custom_scalar_listany_to_listany:list",
                         R.list(R.STRING),
                         b.fieldReference(input, 0))),
             b.remap(1),
@@ -306,7 +315,7 @@ public class CustomFunctionTest extends PlanTestBase {
                 List.of(
                     b.scalarFn(
                         NAMESPACE,
-                        "custom_scalar_listany_any:list_any",
+                        "custom_scalar_listany_any_to_listany:list_any",
                         R.list(R.STRING),
                         b.fieldReference(input, 0),
                         b.fieldReference(input, 1))),
@@ -327,7 +336,7 @@ public class CustomFunctionTest extends PlanTestBase {
                 List.of(
                     b.scalarFn(
                         NAMESPACE,
-                        "custom_scalar_liststring:list",
+                        "custom_scalar_liststring_to_liststring:list",
                         R.list(R.STRING),
                         b.fieldReference(input, 0))),
             b.remap(1),
@@ -346,13 +355,38 @@ public class CustomFunctionTest extends PlanTestBase {
                 List.of(
                     b.scalarFn(
                         NAMESPACE,
-                        "custom_scalar_liststring_any:list_any",
+                        "custom_scalar_liststring_any_to_liststring:list_any",
                         R.list(R.STRING),
                         b.fieldReference(input, 0),
                         b.fieldReference(input, 1))),
             b.remap(2),
             b.namedScan(
                 List.of("example"), List.of("a", "b"), List.of(R.list(R.STRING), R.STRING)));
+
+    RelNode calciteRel = substraitToCalcite.convert(rel);
+    var relReturned = calciteToSubstrait.apply(calciteRel);
+    assertEquals(rel, relReturned);
+  }
+
+  @Test
+  void customScalarListStringAndAnyVariadicRoundtrip() {
+    Rel rel =
+        b.project(
+            input ->
+                List.of(
+                    b.scalarFn(
+                        NAMESPACE,
+                        "custom_scalar_liststring_anyvariadic_to_liststring:list_any",
+                        R.list(R.STRING),
+                        b.fieldReference(input, 0),
+                        b.fieldReference(input, 1),
+                        b.fieldReference(input, 2),
+                        b.fieldReference(input, 3))),
+            b.remap(4),
+            b.namedScan(
+                List.of("example"),
+                List.of("a", "b", "c", "d"),
+                List.of(R.list(R.STRING), R.STRING, R.STRING, R.STRING)));
 
     RelNode calciteRel = substraitToCalcite.convert(rel);
     var relReturned = calciteToSubstrait.apply(calciteRel);
