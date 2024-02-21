@@ -14,14 +14,16 @@ import io.substrait.type.Type;
 import io.substrait.util.Util;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
@@ -178,28 +180,46 @@ public abstract class FunctionConverter<
 
           var bounds = ArgumentBounds.parse(function);
 
-          // Skip if the number of arguments doesn't match or the return type doesn't match
-          if (!bounds.within(inputTypes.size())
-              || !(function.returnType() instanceof ParameterizedType)
-              || !isMatch(outputType, (ParameterizedType) function.returnType())) {
-            continue;
-          }
-
-          // Check if every argument matches the function type.
-          if (IntStream.range(0, inputTypes.size())
-              .allMatch(
-                  i ->
-                      isMatch(
-                          inputTypes.get(i),
-                          ((SimpleExtension.ValueArgument)
-                                  args.get(Integer.min(i, args.size() - 1)))
-                              .value()))) {
+          // Make sure that arguments & return are within bounds and match the types
+          if (function.returnType() instanceof ParameterizedType
+              && isMatch(outputType, (ParameterizedType) function.returnType())
+              && bounds.within(inputTypes.size())
+              && argumentsMatchType(inputTypes, args)) {
             return Optional.of(function);
           }
         }
 
         return Optional.empty();
       };
+    }
+
+    private static boolean argumentsMatchType(
+        List<Type> inputTypes, List<SimpleExtension.Argument> args) {
+
+      Map<String, Set<Type>> wildcardToType = new HashMap<>();
+      for (int i = 0; i < inputTypes.size(); i++) {
+        Type givenType = inputTypes.get(i);
+        // Variadic arguments should match the last argument's type
+        SimpleExtension.ValueArgument wantType =
+            (SimpleExtension.ValueArgument) args.get(Integer.min(i, args.size() - 1));
+
+        if (!isMatch(givenType, wantType.value())) {
+          return false;
+        }
+
+        // Register the wildcard to type
+        if (wantType.value().isWildcard()) {
+          wildcardToType
+              .computeIfAbsent(
+                  wantType.value().accept(ToTypeString.ToTypeLiteralStringLossless.INSTANCE),
+                  k -> new HashSet<>())
+              .add(givenType);
+        }
+      }
+
+      // If all the types match, check if the wildcard types are compatible.
+      // Note: We could ignore the "any" key here if we decide to not match non-enumerated types.
+      return wildcardToType.values().stream().allMatch(s -> s.size() == 1);
     }
 
     /**

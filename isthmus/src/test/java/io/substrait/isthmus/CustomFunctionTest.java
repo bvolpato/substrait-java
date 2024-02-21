@@ -1,6 +1,7 @@
 package io.substrait.isthmus;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.google.protobuf.Any;
 import io.substrait.dsl.SubstraitBuilder;
@@ -105,6 +106,9 @@ public class CustomFunctionTest extends PlanTestBase {
       List.of(
           FunctionMappings.s(customScalarFn),
           FunctionMappings.s(customScalarAnyFn),
+          FunctionMappings.s(customScalarAnyToAnyFn),
+          FunctionMappings.s(customScalarAny1Any1ToAny1Fn),
+          FunctionMappings.s(customScalarAny1Any2ToAny2Fn),
           FunctionMappings.s(customScalarListAnyFn),
           FunctionMappings.s(customScalarListAnyAndAnyFn),
           FunctionMappings.s(customScalarListStringFn),
@@ -130,11 +134,36 @@ public class CustomFunctionTest extends PlanTestBase {
           null,
           SqlFunctionCategory.USER_DEFINED_FUNCTION);
 
+  static final SqlFunction customScalarAnyToAnyFn =
+      new SqlFunction(
+          "custom_scalar_any_to_any",
+          SqlKind.OTHER_FUNCTION,
+          ReturnTypes.ARG0_NULLABLE,
+          null,
+          null,
+          SqlFunctionCategory.USER_DEFINED_FUNCTION);
+  static final SqlFunction customScalarAny1Any1ToAny1Fn =
+      new SqlFunction(
+          "custom_scalar_any1any1_to_any1",
+          SqlKind.OTHER_FUNCTION,
+          ReturnTypes.ARG0_NULLABLE,
+          null,
+          null,
+          SqlFunctionCategory.USER_DEFINED_FUNCTION);
+  static final SqlFunction customScalarAny1Any2ToAny2Fn =
+      new SqlFunction(
+          "custom_scalar_any1any2_to_any2",
+          SqlKind.OTHER_FUNCTION,
+          ReturnTypes.ARG1_NULLABLE,
+          null,
+          null,
+          SqlFunctionCategory.USER_DEFINED_FUNCTION);
+
   static final SqlFunction customScalarListAnyFn =
       new SqlFunction(
           "custom_scalar_listany_to_listany",
           SqlKind.OTHER_FUNCTION,
-          ReturnTypes.explicit(varcharArrayType),
+          ReturnTypes.ARG0_NULLABLE,
           null,
           null,
           SqlFunctionCategory.USER_DEFINED_FUNCTION);
@@ -143,7 +172,7 @@ public class CustomFunctionTest extends PlanTestBase {
       new SqlFunction(
           "custom_scalar_listany_any_to_listany",
           SqlKind.OTHER_FUNCTION,
-          ReturnTypes.explicit(varcharArrayType),
+          ReturnTypes.ARG0_NULLABLE,
           null,
           null,
           SqlFunctionCategory.USER_DEFINED_FUNCTION);
@@ -289,6 +318,89 @@ public class CustomFunctionTest extends PlanTestBase {
   }
 
   @Test
+  void customScalarAnyToAnyFunctionRoundtrip() {
+    Rel rel =
+        b.project(
+            input ->
+                List.of(
+                    b.scalarFn(
+                        NAMESPACE,
+                        "custom_scalar_any_to_any:any",
+                        R.FP64,
+                        b.fieldReference(input, 0))),
+            b.remap(1),
+            b.namedScan(List.of("example"), List.of("a"), List.of(R.FP64)));
+
+    RelNode calciteRel = substraitToCalcite.convert(rel);
+    var relReturned = calciteToSubstrait.apply(calciteRel);
+    assertEquals(rel, relReturned);
+  }
+
+  @Test
+  void customScalarAny1Any1ToAny1FunctionRoundtrip() {
+    Rel rel =
+        b.project(
+            input ->
+                List.of(
+                    b.scalarFn(
+                        NAMESPACE,
+                        "custom_scalar_any1any1_to_any1:any_any",
+                        R.FP64,
+                        b.fieldReference(input, 0),
+                        b.fieldReference(input, 1))),
+            b.remap(2),
+            b.namedScan(List.of("example"), List.of("a", "b"), List.of(R.FP64, R.FP64)));
+
+    RelNode calciteRel = substraitToCalcite.convert(rel);
+    var relReturned = calciteToSubstrait.apply(calciteRel);
+    assertEquals(rel, relReturned);
+  }
+
+  @Test
+  void customScalarAny1Any1ToAny1FunctionMismatch() {
+    Rel rel =
+        b.project(
+            input ->
+                List.of(
+                    b.scalarFn(
+                        NAMESPACE,
+                        "custom_scalar_any1any1_to_any1:any_any",
+                        R.FP64,
+                        b.fieldReference(input, 0),
+                        b.fieldReference(input, 1))),
+            b.remap(2),
+            b.namedScan(List.of("example"), List.of("a", "b"), List.of(R.FP64, R.STRING)));
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> {
+          RelNode calciteRel = substraitToCalcite.convert(rel);
+          calciteToSubstrait.apply(calciteRel);
+        },
+        "Unable to convert call custom_scalar_any1any1_to_any1(fp64, string)");
+  }
+
+  @Test
+  void customScalarAny1Any2ToAny2FunctionRoundtrip() {
+    Rel rel =
+        b.project(
+            input ->
+                List.of(
+                    b.scalarFn(
+                        NAMESPACE,
+                        "custom_scalar_any1any2_to_any2:any_any",
+                        R.STRING,
+                        b.fieldReference(input, 0),
+                        b.fieldReference(input, 1))),
+            b.remap(2),
+            b.namedScan(List.of("example"), List.of("a", "b"), List.of(R.FP64, R.STRING)));
+
+    RelNode calciteRel = substraitToCalcite.convert(rel);
+    var relReturned = calciteToSubstrait.apply(calciteRel);
+    assertEquals(rel, relReturned);
+  }
+
+  @Test
   void customScalarListAnyRoundtrip() {
     Rel rel =
         b.project(
@@ -297,10 +409,10 @@ public class CustomFunctionTest extends PlanTestBase {
                     b.scalarFn(
                         NAMESPACE,
                         "custom_scalar_listany_to_listany:list",
-                        R.list(R.STRING),
+                        R.list(R.I64),
                         b.fieldReference(input, 0))),
             b.remap(1),
-            b.namedScan(List.of("example"), List.of("a"), List.of(R.list(R.STRING))));
+            b.namedScan(List.of("example"), List.of("a"), List.of(R.list(R.I64))));
 
     RelNode calciteRel = substraitToCalcite.convert(rel);
     var relReturned = calciteToSubstrait.apply(calciteRel);

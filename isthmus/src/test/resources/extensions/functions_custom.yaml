@@ -19,6 +19,31 @@ scalar_functions:
         - name: some_arg
           value: any1
       return: string
+  - name: "custom_scalar_any_to_any"
+    description: "a custom scalar function that takes any argument input and returns the same type"
+    impls:
+    - args:
+        - name: some_arg
+          value: any1
+      return: any1
+  - name: "custom_scalar_any1any1_to_any1"
+    description: "a custom scalar function that takes two any1 inputs and returns the same type"
+    impls:
+    - args:
+        - name: some_arg
+          value: any1
+        - name: another_arg
+          value: any1
+      return: any1
+  - name: "custom_scalar_any1any2_to_any2"
+    description: "a custom scalar function that takes any1 and any2 inputs and returns any2"
+    impls:
+    - args:
+        - name: some_arg
+          value: any1
+        - name: another_arg
+          value: any2
+      return: any2
   - name: "to_b_type"
     description: "converts a nullable a_type to a b_type"
     impls:
