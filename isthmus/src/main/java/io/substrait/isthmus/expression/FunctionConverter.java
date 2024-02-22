@@ -20,6 +20,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
@@ -170,8 +171,30 @@ public abstract class FunctionConverter<
 
     private static <F extends SimpleExtension.Function> SignatureMatcher<F> getSignatureMatcher(
         SqlOperator operator, List<F> functions) {
-      // TODO: define up-converting matchers.
-      return (a, b) -> Optional.empty();
+      return (inputTypes, outputType) -> {
+        for (F function : functions) {
+          List<SimpleExtension.Argument> args = function.requiredArguments();
+
+          // Skip if the number of arguments doesn't match or the return type doesn't match
+          if (args.size() != inputTypes.size()
+              || !(function.returnType() instanceof ParameterizedType)
+              || !isMatch(outputType, (ParameterizedType) function.returnType())) {
+            continue;
+          }
+
+          // Check if every argument matches the function type.
+          if (IntStream.range(0, args.size())
+              .allMatch(
+                  i ->
+                      isMatch(
+                          inputTypes.get(i),
+                          ((SimpleExtension.ValueArgument) args.get(i)).value()))) {
+            return Optional.of(function);
+          }
+        }
+
+        return Optional.empty();
+      };
     }
 
     /**
@@ -289,12 +312,10 @@ public abstract class FunctionConverter<
       var outputType = typeConverter.toSubstrait(call.getType());
 
       // try to do a direct match
+      var typeStrings =
+          opTypes.stream().map(t -> t.accept(ToTypeString.INSTANCE)).collect(Collectors.toList());
       var possibleKeys =
-          matchKeys(
-              call.getOperands().collect(java.util.stream.Collectors.toList()),
-              opTypes.stream()
-                  .map(t -> t.accept(ToTypeString.INSTANCE))
-                  .collect(java.util.stream.Collectors.toList()));
+          matchKeys(call.getOperands().collect(java.util.stream.Collectors.toList()), typeStrings);
 
       var directMatchKey =
           possibleKeys
@@ -327,31 +348,74 @@ public abstract class FunctionConverter<
       }
 
       if (singularInputType.isPresent()) {
-        RelDataType leastRestrictive =
-            typeFactory.leastRestrictive(
-                call.getOperands()
-                    .map(RexNode::getType)
-                    .collect(java.util.stream.Collectors.toList()));
-        if (leastRestrictive == null) {
-          return Optional.empty();
+        Optional<T> leastRestrictive = matchByLeastRestrictive(call, outputType, operands);
+        if (leastRestrictive.isPresent()) {
+          return leastRestrictive;
         }
-        Type type = typeConverter.toSubstrait(leastRestrictive);
-        var out = singularInputType.get().tryMatch(type, outputType);
 
-        if (out.isPresent()) {
-          var declaration = out.get();
-          var coercedArgs = coerceArguments(operands, type);
-          declaration.validateOutputType(coercedArgs, outputType);
-          return Optional.of(
-              generateBinding(
-                  call,
-                  out.get(),
-                  coercedArgs.stream()
-                      .map(FunctionArg.class::cast)
-                      .collect(java.util.stream.Collectors.toList()),
-                  outputType));
+        Optional<T> coerced = matchCoerced(call, outputType, operands);
+        if (coerced.isPresent()) {
+          return coerced;
         }
       }
+      return Optional.empty();
+    }
+
+    private Optional<T> matchByLeastRestrictive(
+        C call, Type outputType, List<Expression> operands) {
+      RelDataType leastRestrictive =
+          typeFactory.leastRestrictive(
+              call.getOperands().map(RexNode::getType).collect(Collectors.toList()));
+      if (leastRestrictive == null) {
+        return Optional.empty();
+      }
+      Type type = typeConverter.toSubstrait(leastRestrictive);
+      var out = singularInputType.get().tryMatch(type, outputType);
+
+      if (out.isPresent()) {
+        var declaration = out.get();
+        var coercedArgs = coerceArguments(operands, type);
+        declaration.validateOutputType(coercedArgs, outputType);
+        return Optional.of(
+            generateBinding(
+                call,
+                out.get(),
+                coercedArgs.stream().map(FunctionArg.class::cast).collect(Collectors.toList()),
+                outputType));
+      }
+      return Optional.empty();
+    }
+
+    private Optional<T> matchCoerced(C call, Type outputType, List<Expression> operands) {
+
+      // Convert the operands to the proper Substrait type
+      List<Type> allTypes =
+          call.getOperands()
+              .map(RexNode::getType)
+              .map(typeConverter::toSubstrait)
+              .collect(Collectors.toList());
+
+      // See if all the input types match the function
+      Optional<F> matchFunction = this.matcher.tryMatch(allTypes, outputType);
+      if (matchFunction.isPresent()) {
+        List<Expression> coerced =
+            Streams.zip(
+                    operands.stream(),
+                    call.getOperands(),
+                    (a, b) -> {
+                      Type type = typeConverter.toSubstrait(b.getType());
+                      return coerceArgument(a, type);
+                    })
+                .collect(Collectors.toList());
+
+        return Optional.of(
+            generateBinding(
+                call,
+                matchFunction.get(),
+                coerced.stream().map(FunctionArg.class::cast).collect(Collectors.toList()),
+                outputType));
+      }
+
       return Optional.empty();
     }
 
@@ -374,18 +438,16 @@ public abstract class FunctionConverter<
    * Coerced types according to an expected output type. Coercion is only done for type mismatches,
    * not for nullability or parameter mismatches.
    */
-  private List<Expression> coerceArguments(List<Expression> arguments, Type type) {
+  private static List<Expression> coerceArguments(List<Expression> arguments, Type type) {
+    return arguments.stream().map(a -> coerceArgument(a, type)).collect(Collectors.toList());
+  }
 
-    return arguments.stream()
-        .map(
-            a -> {
-              var typeMatches = isMatch(type, a.getType());
-              if (!typeMatches) {
-                return ExpressionCreator.cast(type, a);
-              }
-              return a;
-            })
-        .collect(java.util.stream.Collectors.toList());
+  private static Expression coerceArgument(Expression argument, Type type) {
+    var typeMatches = isMatch(type, argument.getType());
+    if (!typeMatches) {
+      return ExpressionCreator.cast(type, argument);
+    }
+    return argument;
   }
 
   protected abstract T generateBinding(
