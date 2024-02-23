@@ -15,7 +15,6 @@ import io.substrait.expression.WindowBound;
 import io.substrait.extension.SimpleExtension;
 import io.substrait.isthmus.SubstraitRelNodeConverter;
 import io.substrait.isthmus.TypeConverter;
-import io.substrait.relation.ConsistentPartitionWindow;
 import io.substrait.type.StringTypeVisitor;
 import io.substrait.type.Type;
 import io.substrait.util.DecimalUtil;
@@ -406,67 +405,6 @@ public class ExpressionRexConverter extends AbstractExpressionVisitor<RexNode, R
         args,
         partitionKeys,
         orderKeys,
-        lowerBound,
-        upperBound,
-        rowMode,
-        allowPartial,
-        nullWhenCountZero,
-        distinct,
-        ignoreNulls);
-  }
-
-  public RexNode visit(ConsistentPartitionWindow.WindowRelFunctionInvocation expr)
-      throws RuntimeException {
-    SqlOperator operator =
-        windowRelFunctionConverter
-            .getSqlOperatorFromSubstraitFunc(expr.declaration().key(), expr.outputType())
-            .orElseThrow(
-                () ->
-                    new IllegalArgumentException(
-                        callConversionFailureMessage(
-                            "windowRel", expr.declaration().name(), expr.arguments())));
-
-    RelDataType outputType = typeConverter.toCalcite(typeFactory, expr.outputType());
-
-    List<FunctionArg> eArgs = expr.arguments();
-    List<RexNode> args =
-        IntStream.range(0, expr.arguments().size())
-            .mapToObj(i -> eArgs.get(i).accept(expr.declaration(), i, this))
-            .collect(java.util.stream.Collectors.toList());
-
-    RexWindowBound lowerBound = ToRexWindowBound.lowerBound(rexBuilder, expr.lowerBound());
-    RexWindowBound upperBound = ToRexWindowBound.upperBound(rexBuilder, expr.upperBound());
-
-    boolean rowMode =
-        switch (expr.boundsType()) {
-          case ROWS -> true;
-          case RANGE -> false;
-          case UNSPECIFIED -> throw new IllegalArgumentException(
-              "bounds type on window function must be specified");
-        };
-
-    boolean distinct =
-        switch (expr.invocation()) {
-          case UNSPECIFIED, ALL -> false;
-          case DISTINCT -> true;
-        };
-
-    // For queries like: SELECT last_value() IGNORE NULLS OVER ...
-    // Substrait has no mechanism to set this, so by default it is false
-    boolean ignoreNulls = false;
-
-    // These both control a rewrite rule within rexBuilder.makeOver that rewrites the given
-    // expression into a case expression. These values are set as such to avoid this rewrite.
-    boolean nullWhenCountZero = false;
-    boolean allowPartial = true;
-
-    // TODO: what to pass on partitionKeys / orderKeys? send the ConsistentWindowRel?
-    return rexBuilder.makeOver(
-        outputType,
-        (SqlAggFunction) operator,
-        args,
-        null,
-        null,
         lowerBound,
         upperBound,
         rowMode,
